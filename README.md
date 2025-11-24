@@ -393,8 +393,8 @@ at your option.
 ## Support
 
 - 📖 [Documentation](https://docs.rs/inmemorytable)
-- 🐛 [Issue Tracker](https://github.com/marc0x71/inmemorytable/issues)
-- 💬 [Discussions](https://github.com/marc0x71/inmemorytable/discussions)
+- 🐛 [Issue Tracker](https://github.com/marc0x71/inmemorytable-rs/issues)
+- 💬 [Discussions](https://github.com/marc0x71/inmemorytable-rs/discussions)
 
 ---
 
