@@ -4,6 +4,7 @@ A Rust library for managing typed records in POSIX shared memory with IPC semaph
 
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
+[![Rust CI](https://github.com/marc0x71/inmemorytable-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/marc0x71/inmemorytable-rs/actions/workflows/ci.yml)
 
 ## ⚠️ Development Status
 
