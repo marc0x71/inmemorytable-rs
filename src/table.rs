@@ -644,6 +644,20 @@ where
         Ok(())
     }
 
+    /// Returns an iterator over all valid records in the table.
+    ///
+    /// The iterator automatically skips deleted or empty slots and stops
+    /// as soon as all valid records have been yielded.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// for product in table.iter() {
+    ///     println!("{}: ${}", product.name, product.price);
+    /// }
+    ///
+    /// let total: f64 = table.iter().map(|p| p.price).sum();
+    /// ```
     pub fn iter(&self) -> TableIterator<'_, T> {
         TableIterator {
             inner: self.slots.iter(),
@@ -651,8 +665,70 @@ where
         }
     }
 
+    /// Returns an iterator over all valid keys in the table.
+    ///
+    /// This is more lightweight than `iter()` as it doesn't deserialize records.
+    /// Useful for selective updates or existence checks.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let keys: Vec<_> = table.keys().collect();
+    ///
+    /// for key in table.keys() {
+    ///     if should_update(key) {
+    ///         table.update_with_lock(key, |r| r.processed = true)?;
+    ///     }
+    /// }
+    /// ```
     pub fn keys(&self) -> IndexIterator<'_, <T as TableRecord>::Key> where {
         self.primary_keys.iter()
+    }
+
+    /// Updates multiple records by key, applying the same closure to each.
+    ///
+    /// Non-existent keys are silently skipped. Returns the number of records
+    /// actually updated.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - An iterator of keys to update
+    /// * `updater` - A closure that mutates each record
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// // Apply 10% discount to specific products
+    /// let updated = table.update_many([1, 3, 5], |p| p.price *= 0.9)?;
+    /// println!("Updated {} products", updated);
+    ///
+    /// // Non-existent keys are skipped
+    /// let updated = table.update_many([1, 999], |p| p.stock += 10)?;
+    /// assert_eq!(updated, 1); // only key 1 exists
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if locking or serialization fails for any record.
+    /// Records updated before the error are not rolled back.
+    pub fn update_many<I, F>(&mut self, keys: I, updater: F) -> Result<usize, InMemoryTableError>
+    where
+        I: IntoIterator<Item = <T as TableRecord>::Key>,
+        <T as TableRecord>::Key: Debug,
+        F: Fn(&mut T),
+    {
+        let mut found: usize = 0;
+        for key in keys {
+            if let Some(index) = self.primary_keys.get(key) {
+                let _locked = self.semaphores.lock_record(index)?;
+                if let Some(mut record) = self.get(index)? {
+                    updater(&mut record);
+                    self.update(index, &record)?;
+                    found += 1;
+                }
+            }
+        }
+        Ok(found)
     }
 }
 

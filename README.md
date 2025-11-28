@@ -25,6 +25,7 @@ We welcome feedback, bug reports, and contributions to help make this library pr
 - 🔑 **Primary Key Indexing**: Fast O(1) lookups using hash-based indexing
 - 💾 **Binary Serialization**: Efficient storage using `bincode`
 - 🔄 **Full CRUD Operations**: Create, Read, Update, Delete with atomic operations
+- 📦 **Batch Updates**: Update multiple records in a single call via `update_many`
 - 🎯 **Zero-Copy Reads**: Direct memory access where possible
 - 🔃 **Iterator Support**: Iterate over all valid records or keys in the table
 
@@ -269,6 +270,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Same skip behavior**: Automatically skips deleted/empty slots
 - **Useful for**: Selective updates, existence checks, key export
 
+### Batch Updates
+
+For updating multiple records in a single call, use `update_many`:
+
+```rust
+use inmemorytable::table::Table;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut table = Table::<Product>::create("inventory", 100)?;
+    
+    // Insert some products
+    for i in 0..10 {
+        let product = Product {
+            id: i,
+            name: format!("Product {}", i),
+            price: 10.0 * (i as f64 + 1.0),
+            stock: 100,
+        };
+        table.insert(&product)?;
+    }
+    
+    // Update specific products by key
+    let updated = table.update_many([1, 3, 5, 7], |p| {
+        p.price *= 0.9;  // 10% discount
+    })?;
+    println!("Updated {} products", updated);
+    
+    // Non-existent keys are silently skipped
+    let updated = table.update_many([1, 2, 999], |p| {
+        p.stock += 50;
+    })?;
+    assert_eq!(updated, 2);  // only 1 and 2 exist, 999 is skipped
+    
+    // Combine with keys() for conditional updates
+    let low_stock: Vec<_> = table.iter()
+        .filter(|p| p.stock < 20)
+        .map(|p| p.id)
+        .collect();
+    table.update_many(low_stock, |p| p.stock += 100)?;
+    
+    table.destroy()?;
+    Ok(())
+}
+```
+
+#### Why Use `update_many`
+
+- **Cleaner API**: Express batch updates in a single call
+- **Returns count**: Know how many records were actually updated
+- **Skips missing keys**: Non-existent keys are silently ignored without errors
+
 ### Optimizing Record Size
 
 By default, each record is allocated 2KB. For cache-like scenarios with many small records, use `create_with_size` to optimize memory usage:
@@ -360,6 +412,7 @@ assert_eq!(counter.value, 500);
 | `insert(record)` | Insert a new record (fails if key exists) |
 | `find(key)` | Find a record by primary key |
 | `update_with_lock(key, closure)` | Atomically update a record with locking |
+| `update_many(keys, closure)` | Update multiple records by key in a single call |
 | `remove(key)` | Remove a record by key |
 | `count()` | Get current number of records |
 | `capacity()` | Get maximum capacity |
@@ -488,8 +541,9 @@ ls /dev/shm/ | grep -v "^\..*"
 - [ ] Comprehensive benchmarks
 - [x] Iterator support
 - [x] Keys iterator (`keys()`)
+- [x] Batch update (`update_many`)
 - [ ] Additional iterators (`drain()`)
-- [ ] Batch update operations (`update_where`, `update_many`)
+- [ ] Conditional batch update (`update_where`) - awaiting secondary indexes
 - [ ] Query builder API
 - [ ] Backup/restore functionality
 

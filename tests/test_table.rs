@@ -350,6 +350,11 @@ fn test_iterator() {
     }
     assert_eq!(iter.next(), None);
     assert_eq!(iter.next(), None);
+
+    table.destroy().unwrap();
+
+    assert!(!common::shm_exists(&name));
+    assert!(!common::sem_exists(&name));
 }
 
 #[test]
@@ -372,4 +377,49 @@ fn test_keys_iterator() {
 
     let keys = table.keys().collect::<Vec<_>>();
     assert_eq!(keys, vec![0, 1, 2, 4]);
+
+    table.destroy().unwrap();
+
+    assert!(!common::shm_exists(&name));
+    assert!(!common::sem_exists(&name));
+}
+
+#[test]
+fn test_update_many() {
+    let name = random_table_name();
+
+    let mut table = Table::<TestData>::create(&name, 5).unwrap();
+
+    for i in 0..5 {
+        let record = TestData {
+            number: i,
+            value: 100.0 / (i as f64),
+        };
+        table.insert(&record).expect("unable to insert record");
+    }
+    assert_eq!(table.count(), 5);
+    assert_eq!(table.capacity(), 5);
+
+    let count = table
+        .update_many([1, 4, 10], |record| record.value *= 2.0)
+        .expect("update_many");
+    assert_eq!(count, 2);
+
+    for i in 0..5 {
+        let k = if i == 1 || i == 4 { 2.0 } else { 1.0 };
+        let expected = TestData {
+            number: i,
+            value: k * (100.0 / (i as f64)),
+        };
+        let got = table
+            .find(i)
+            .unwrap_or_else(|_| panic!("Record with key {} not found", i))
+            .unwrap_or_else(|| panic!("Record with key {} not found", i));
+        assert_eq!(got, expected);
+    }
+
+    table.destroy().unwrap();
+
+    assert!(!common::shm_exists(&name));
+    assert!(!common::sem_exists(&name));
 }
