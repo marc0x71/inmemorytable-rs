@@ -652,11 +652,26 @@ where
     /// # Example
     ///
     /// ```
+    /// # use inmemorytable::table::Table;
+    /// # use inmemorytable::record::TableRecord;
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+    ///
+    /// struct TestData{ number: i32, name: String, price: f64 }
+    /// impl TableRecord for TestData {
+    ///     type Key = i32;
+    ///     fn key(&self) -> i32 { self.number }
+    /// }
+    ///
+    /// let name = "demo_iter";
+    /// let mut table = Table::<TestData>::create(name, 3).unwrap();
     /// for product in table.iter() {
     ///     println!("{}: ${}", product.name, product.price);
     /// }
     ///
     /// let total: f64 = table.iter().map(|p| p.price).sum();
+    ///
+    /// table.destroy().unwrap();
     /// ```
     pub fn iter(&self) -> TableIterator<'_, T> {
         TableIterator {
@@ -673,13 +688,26 @@ where
     /// # Example
     ///
     /// ```
+    /// # use inmemorytable::table::Table;
+    /// # use inmemorytable::record::TableRecord;
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+    ///
+    /// struct TestData{ number: i32, name: String, processed: bool }
+    /// impl TableRecord for TestData {
+    ///     type Key = i32;
+    ///     fn key(&self) -> i32 { self.number }
+    /// }
+    ///
+    /// let name = "demo_keys";
+    /// let mut table = Table::<TestData>::create(name, 3).unwrap();
     /// let keys: Vec<_> = table.keys().collect();
     ///
-    /// for key in table.keys() {
-    ///     if should_update(key) {
-    ///         table.update_with_lock(key, |r| r.processed = true)?;
-    ///     }
+    /// let keys = table.keys().collect::<Vec<_>>();
+    /// for key in keys {
+    ///     table.update_with_lock(key, |r| r.processed = true).expect("update_with_lock error");
     /// }
+    /// table.destroy().unwrap();
     /// ```
     pub fn keys(&self) -> IndexIterator<'_, <T as TableRecord>::Key> where {
         self.primary_keys.iter()
@@ -698,13 +726,35 @@ where
     /// # Example
     ///
     /// ```
+    /// # use inmemorytable::table::Table;
+    /// # use inmemorytable::record::TableRecord;
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+    ///
+    /// struct TestData{ id: i32, price: f64, stock: usize }
+    /// impl TableRecord for TestData {
+    ///     type Key = i32;
+    ///     fn key(&self) -> i32 { self.id }
+    /// }
+    ///
+    /// let name = "demo_update_many";
+    /// let mut table = Table::<TestData>::create(name, 5).unwrap();
+    ///
+    /// table.insert(&TestData { id: 1, price: 10.0, stock: 15 }).unwrap();
+    /// table.insert(&TestData { id: 2, price: 11.0, stock: 42 }).unwrap();
+    /// table.insert(&TestData { id: 3, price: 32.0, stock: 5 }).unwrap();
+    /// table.insert(&TestData { id: 4, price: 3.0, stock: 7 }).unwrap();
+    /// table.insert(&TestData { id: 5, price: 1.0, stock: 5 }).unwrap();
+    ///
     /// // Apply 10% discount to specific products
-    /// let updated = table.update_many([1, 3, 5], |p| p.price *= 0.9)?;
+    /// let updated = table.update_many([1, 3, 5], |p| p.price *= 0.9).expect("update_many error");
     /// println!("Updated {} products", updated);
     ///
     /// // Non-existent keys are skipped
-    /// let updated = table.update_many([1, 999], |p| p.stock += 10)?;
+    /// let updated = table.update_many([1, 999], |p| p.stock += 10).expect("update_many error");
     /// assert_eq!(updated, 1); // only key 1 exists
+    ///
+    /// table.destroy().unwrap();
     /// ```
     ///
     /// # Errors
