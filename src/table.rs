@@ -637,4 +637,41 @@ where
         }
         Ok(())
     }
+
+    pub fn iter(&self) -> TableIterator<'_, T> {
+        TableIterator {
+            table: self,
+            current: 0,
+        }
+    }
+}
+
+pub struct TableIterator<'a, T: TableRecord> {
+    table: &'a Table<T>,
+    current: usize,
+}
+
+impl<T> Iterator for TableIterator<'_, T>
+where
+    T: TableRecord + DeserializeOwned,
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current >= self.table.header.capacity {
+            return None;
+        }
+
+        while self.table.slots.is_free(self.current) {
+            self.current += 1;
+        }
+
+        let _locked = self.table.semaphores.lock_record(self.current);
+        let data = self.table.slots.get(self.current);
+
+        self.current += 1;
+
+        // deserialize record
+        bincode::deserialize::<T>(data).ok()
+    }
 }

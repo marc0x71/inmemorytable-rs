@@ -317,3 +317,37 @@ fn test_concurrent_updates_with_threads() {
     assert!(!common::shm_exists(&name));
     assert!(!common::sem_exists(&name));
 }
+
+#[test]
+fn test_iterator() {
+    let name = random_table_name();
+
+    let mut table = Table::<TestData>::create(&name, 5).unwrap();
+
+    for i in 0..5 {
+        let record = TestData {
+            number: i,
+            value: 100.0 / (i as f64),
+        };
+        table.insert(&record).expect("unable to insert record");
+    }
+    assert_eq!(table.count(), 5);
+    assert_eq!(table.capacity(), 5);
+
+    table.remove(3).expect("unable to remove record");
+
+    let mut iter = table.iter();
+    for i in 0..5 {
+        if i == 3 {
+            continue;
+        }
+        let expected = TestData {
+            number: i,
+            value: 100.0 / (i as f64),
+        };
+        let got = iter.next().expect("Iterator is none");
+        assert_eq!(got, expected);
+    }
+    assert_eq!(iter.next(), None);
+    assert_eq!(iter.next(), None);
+}

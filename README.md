@@ -26,6 +26,7 @@ We welcome feedback, bug reports, and contributions to help make this library pr
 - 💾 **Binary Serialization**: Efficient storage using `bincode`
 - 🔄 **Full CRUD Operations**: Create, Read, Update, Delete with atomic operations
 - 🎯 **Zero-Copy Reads**: Direct memory access where possible
+- 🔃 **Iterator Support**: Iterate over all valid records in the table
 
 ## Installation
 
@@ -55,7 +56,7 @@ struct Product {
 
 impl TableRecord for Product {
     type Key = u32;
-
+    
     fn key(&self) -> Self::Key {
         self.id
     }
@@ -70,7 +71,7 @@ use inmemorytable::table::Table;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a new table in shared memory
     let mut table = Table::<Product>::create("products", 1000)?;
-
+    
     // Insert a record
     let product = Product {
         id: 1,
@@ -79,24 +80,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stock: 50,
     };
     table.insert(&product)?;
-
+    
     // Find a record
     if let Some(found) = table.find(1)? {
         println!("Found: {} - ${}", found.name, found.price);
     }
-
+    
     // Update with automatic locking
     table.update_with_lock(1, |p| {
         p.stock -= 1;
         p.price *= 0.9; // 10% discount
     })?;
-
+    
     // Remove a record
     table.remove(1)?;
-
+    
     // Clean up
     table.destroy()?;
-
+    
     Ok(())
 }
 ```
@@ -126,7 +127,7 @@ impl TableRecord for Task {
 fn main() {
     let mut table = Table::<Task>::create("task_queue", 100)
         .expect("Failed to create table");
-
+    
     for i in 0..10 {
         let task = Task {
             id: i,
@@ -135,7 +136,7 @@ fn main() {
         };
         table.insert(&task).expect("Failed to insert");
     }
-
+    
     println!("Created {} tasks", table.count());
 }
 ```
@@ -145,18 +146,76 @@ fn main() {
 fn main() {
     let mut table = Table::<Task>::open("task_queue")
         .expect("Failed to open table");
-
+    
     for i in 0..10 {
         table.update_with_lock(i, |task| {
             println!("Processing: {}", task.description);
             task.completed = true;
         }).expect("Failed to update");
     }
-
+    
     println!("Processed {} tasks", table.count());
     table.destroy().expect("Failed to cleanup");
 }
 ```
+
+### Iterating Over Records
+
+The library provides iterator support for traversing all valid records in a table. The iterator automatically skips deleted or empty slots:
+
+```rust
+use inmemorytable::table::Table;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut table = Table::<Product>::create("inventory", 100)?;
+    
+    // Insert some products
+    for i in 0..5 {
+        let product = Product {
+            id: i,
+            name: format!("Product {}", i),
+            price: 10.0 * (i as f64 + 1.0),
+            stock: 100,
+        };
+        table.insert(&product)?;
+    }
+    
+    // Remove one product
+    table.remove(2)?;
+    
+    // Iterate over remaining products
+    println!("Current inventory:");
+    for product in table.iter() {
+        println!("  - {} (ID: {}): ${:.2}", product.name, product.id, product.price);
+    }
+    
+    // Use iterator with standard Rust methods
+    let total_value: f64 = table.iter()
+        .map(|p| p.price * p.stock as f64)
+        .sum();
+    println!("Total inventory value: ${:.2}", total_value);
+    
+    // Count products over a certain price
+    let expensive_count = table.iter()
+        .filter(|p| p.price > 25.0)
+        .count();
+    println!("Products over $25: {}", expensive_count);
+    
+    // Collect into a Vec
+    let all_products: Vec<Product> = table.iter().collect();
+    println!("Total products: {}", all_products.len());
+    
+    table.destroy()?;
+    Ok(())
+}
+```
+
+#### Iterator Behavior
+
+- **Skips empty slots**: The iterator only yields valid records, automatically skipping deleted entries
+- **Fused iterator**: After returning `None`, subsequent calls to `next()` will continue to return `None`
+- **Snapshot semantics**: The iterator traverses the table as it exists at iteration time
+- **No ordering guarantee**: Records are returned in internal storage order, not by key
 
 ### Custom Record Size
 
@@ -235,6 +294,7 @@ assert_eq!(counter.value, 500);
 | `remove(key)` | Remove a record by key |
 | `count()` | Get current number of records |
 | `capacity()` | Get maximum capacity |
+| `iter()` | Get an iterator over all valid records |
 | `destroy()` | Remove table from shared memory |
 
 ### Error Handling
@@ -262,11 +322,12 @@ match table.insert(&record) {
 ## System Requirements
 
 ### Operating System
-- **Linux** (uses POSIX shared memory and System V IPC semaphores)
-- Other Unix-like systems may work but are untested
+- **Linux**: Full support
+- **macOS**: Supported (uses POSIX shared memory and System V IPC)
+- Other Unix-like systems (FreeBSD, etc.) may work but are untested
 
 ### Permissions
-- Write access to `/dev/shm`
+- Write access to shared memory (Linux: `/dev/shm`, macOS: managed by kernel)
 - Ability to create IPC semaphores
 
 ### System Resources
@@ -274,7 +335,7 @@ match table.insert(&record) {
 Check your system limits:
 
 ```bash
-# Available shared memory space
+# Available shared memory space (Linux only)
 df -h /dev/shm
 
 # Current semaphore usage
@@ -291,6 +352,7 @@ ipcs -l
 - **Serialization**: Uses `bincode` for efficient binary serialization
 - **Lock Contention**: High concurrent access may cause contention on semaphores
 - **No Dynamic Resizing**: Choose capacity carefully - tables cannot be resized after creation
+- **Iterator Performance**: Iterating scans all slots, including empty ones - performance is O(capacity), not O(count)
 
 ## Debugging and Cleanup
 
@@ -298,33 +360,43 @@ ipcs -l
 
 If a process crashes before calling `destroy()`, resources may remain:
 
+**Linux:**
 ```bash
 # List shared memory segments
 ls -lh /dev/shm/
 
 # Remove orphaned shared memory
 rm /dev/shm/table_name
+```
 
+**macOS:**
+```bash
+# List shared memory segments
+ls -lh /var/folders/*/*/com.apple.shm/
+```
+
+**Both systems (System V IPC):**
+```bash
 # List IPC semaphores
 ipcs -s
 
 # Remove semaphore by ID
 ipcrm -s <semaphore_id>
 
-# Remove all semaphores owned by user
+# Remove all semaphores owned by user (Linux only)
 ipcrm -a
 ```
 
 ### Diagnostic Tools
 
 ```bash
-# Monitor shared memory usage
+# Monitor shared memory usage (Linux)
 watch -n 1 'df -h /dev/shm'
 
 # Watch semaphore creation/deletion
 watch -n 1 'ipcs -s'
 
-# Check for orphaned resources
+# Check for orphaned resources (Linux)
 ls /dev/shm/ | grep -v "^\..*"
 ```
 
@@ -334,6 +406,7 @@ ls /dev/shm/ | grep -v "^\..*"
 - ✅ **Lock-Free Reads**: Reads use semaphores for consistency
 - ✅ **Atomic Updates**: `update_with_lock()` ensures atomic read-modify-write
 - ⚠️ **Not Thread-Safe Within Process**: Use external synchronization (e.g., `Mutex`) if sharing a `Table` instance across threads in the same process
+- ⚠️ **Iterator Safety**: Iterators are not synchronized - concurrent modifications during iteration may lead to inconsistent results
 
 ## Roadmap
 
@@ -342,8 +415,9 @@ ls /dev/shm/ | grep -v "^\..*"
 - [ ] Transaction support (BEGIN/COMMIT/ROLLBACK)
 - [ ] Windows support (named shared memory)
 - [ ] Comprehensive benchmarks
-- [ ] Iterator support
-- [ ] Batch operations
+- [x] Iterator support
+- [ ] Additional iterators (`keys()`, `drain()`)
+- [ ] Batch update operations (`update_where`, `update_many`)
 - [ ] Query builder API
 - [ ] Backup/restore functionality
 

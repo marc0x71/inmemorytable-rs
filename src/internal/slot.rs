@@ -166,4 +166,15 @@ impl Slots {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr_data, data.len());
         };
     }
+
+    pub fn is_free(&self, index: usize) -> bool {
+        let metadata = self.get_record_metadata(index);
+        metadata.state == SlotState::Free
+    }
+
+    #[allow(dead_code)]
+    pub fn is_occupied(&self, index: usize) -> bool {
+        let metadata = self.get_record_metadata(index);
+        metadata.state == SlotState::Occupied
+    }
 }
