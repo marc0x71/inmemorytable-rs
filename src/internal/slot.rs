@@ -177,4 +177,38 @@ impl Slots {
         let metadata = self.get_record_metadata(index);
         metadata.state == SlotState::Occupied
     }
+
+    pub fn iter(&self) -> SlotsIterator<'_> {
+        SlotsIterator {
+            slots: self,
+            current: 0,
+            found: 0,
+        }
+    }
+}
+
+pub(crate) struct SlotsIterator<'a> {
+    slots: &'a Slots,
+    current: usize,
+    found: usize,
+}
+
+impl<'a> Iterator for SlotsIterator<'a> {
+    type Item = &'a [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.found >= self.slots.count() {
+            return None;
+        }
+
+        while self.slots.is_free(self.current) {
+            self.current += 1;
+        }
+
+        self.found += 1;
+
+        let result = self.slots.get(self.current);
+        self.current += 1;
+        Some(result)
+    }
 }

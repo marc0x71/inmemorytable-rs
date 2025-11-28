@@ -26,7 +26,7 @@ We welcome feedback, bug reports, and contributions to help make this library pr
 - 💾 **Binary Serialization**: Efficient storage using `bincode`
 - 🔄 **Full CRUD Operations**: Create, Read, Update, Delete with atomic operations
 - 🎯 **Zero-Copy Reads**: Direct memory access where possible
-- 🔃 **Iterator Support**: Iterate over all valid records in the table
+- 🔃 **Iterator Support**: Iterate over all valid records or keys in the table
 
 ## Installation
 
@@ -217,30 +217,99 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Snapshot semantics**: The iterator traverses the table as it exists at iteration time
 - **No ordering guarantee**: Records are returned in internal storage order, not by key
 
-### Custom Record Size
+### Iterating Over Keys
 
-By default, each record is allocated 2KB. For larger records, use `create_with_size`:
+For cases where you only need the keys (more lightweight than full record iteration), use `keys()`:
+
+```rust
+use inmemorytable::table::Table;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut table = Table::<Product>::create("inventory", 100)?;
+    
+    // Insert some products
+    for i in 0..5 {
+        let product = Product {
+            id: i,
+            name: format!("Product {}", i),
+            price: 10.0 * (i as f64 + 1.0),
+            stock: 100,
+        };
+        table.insert(&product)?;
+    }
+    
+    // Remove one product
+    table.remove(2)?;
+    
+    // Get all keys
+    let keys: Vec<u32> = table.keys().collect();
+    println!("Active product IDs: {:?}", keys); // [0, 1, 3, 4]
+    
+    // Useful pattern: iterate keys, then update selectively
+    for key in table.keys() {
+        if key % 2 == 0 {
+            table.update_with_lock(key, |p| p.price *= 0.9)?; // 10% discount on even IDs
+        }
+    }
+    
+    // Check if a specific set of keys exists
+    let required_ids = vec![0, 1, 4];
+    let existing_keys: Vec<_> = table.keys().collect();
+    let all_present = required_ids.iter().all(|id| existing_keys.contains(id));
+    println!("All required products present: {}", all_present);
+    
+    table.destroy()?;
+    Ok(())
+}
+```
+
+#### Keys Iterator Behavior
+
+- **Lightweight**: Only returns keys, no deserialization of full records
+- **Same skip behavior**: Automatically skips deleted/empty slots
+- **Useful for**: Selective updates, existence checks, key export
+
+### Optimizing Record Size
+
+By default, each record is allocated 2KB. For cache-like scenarios with many small records, use `create_with_size` to optimize memory usage:
 
 ```rust
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct LargeDocument {
+struct CacheEntry {
     id: u64,
-    content: String,
-    metadata: Vec<u8>,
+    timestamp: i64,
+    value: f64,
+    flags: u8,
 }
 
-impl TableRecord for LargeDocument {
+impl TableRecord for CacheEntry {
     type Key = u64;
     fn key(&self) -> Self::Key { self.id }
 }
 
-// Allocate 8KB per record
-let table = Table::<LargeDocument>::create_with_size(
-    "documents",
-    100,    // capacity
-    8192,   // 8KB per record
+// This struct serializes to ~25 bytes, so 128 bytes is plenty
+// Memory usage: 100,000 × 128 bytes = ~12 MB
+// vs default:   100,000 × 2048 bytes = ~195 MB
+let table = Table::<CacheEntry>::create_with_size(
+    "price_cache",
+    100_000,  // capacity
+    128,      // 128 bytes per record
 )?;
 ```
+
+#### Choosing the Right Record Size
+
+```rust
+// Tip: Check your serialized size
+let entry = CacheEntry { id: 1, timestamp: 0, value: 0.0, flags: 0 };
+let serialized = bincode::serialize(&entry).unwrap();
+println!("Serialized size: {} bytes", serialized.len());
+
+// Add some padding for safety (20-50% overhead)
+let recommended_size = serialized.len() + (serialized.len() / 4);
+```
+
+> ⚠️ **Note**: If a record exceeds the allocated size during serialization, the insert will fail. Always test with your largest expected record.
 
 ### Concurrent Updates from Threads
 
@@ -295,6 +364,7 @@ assert_eq!(counter.value, 500);
 | `count()` | Get current number of records |
 | `capacity()` | Get maximum capacity |
 | `iter()` | Get an iterator over all valid records |
+| `keys()` | Get an iterator over all valid keys (lightweight) |
 | `destroy()` | Remove table from shared memory |
 
 ### Error Handling
@@ -348,11 +418,12 @@ ipcs -l
 ## Performance Considerations
 
 - **Memory Allocation**: Tables allocate all memory upfront based on `capacity × record_size`
-- **Default Record Size**: 2KB per record (configurable with `create_with_size`)
+- **Default Record Size**: 2KB per record - consider reducing for cache scenarios with small records
 - **Serialization**: Uses `bincode` for efficient binary serialization
 - **Lock Contention**: High concurrent access may cause contention on semaphores
 - **No Dynamic Resizing**: Choose capacity carefully - tables cannot be resized after creation
-- **Iterator Performance**: Iterating scans all slots, including empty ones - performance is O(capacity), not O(count)
+- **Iterator Performance**: Iteration stops as soon as all valid records are found - O(count) in best case (no deletions), O(capacity) in worst case (deletions created sparse slots). Use `keys()` when you don't need full records
+- **Best Use Cases**: High-frequency IPC, shared caches, real-time data sharing between processes
 
 ## Debugging and Cleanup
 
@@ -416,7 +487,8 @@ ls /dev/shm/ | grep -v "^\..*"
 - [ ] Windows support (named shared memory)
 - [ ] Comprehensive benchmarks
 - [x] Iterator support
-- [ ] Additional iterators (`keys()`, `drain()`)
+- [x] Keys iterator (`keys()`)
+- [ ] Additional iterators (`drain()`)
 - [ ] Batch update operations (`update_where`, `update_many`)
 - [ ] Query builder API
 - [ ] Backup/restore functionality

@@ -351,3 +351,25 @@ fn test_iterator() {
     assert_eq!(iter.next(), None);
     assert_eq!(iter.next(), None);
 }
+
+#[test]
+fn test_keys_iterator() {
+    let name = random_table_name();
+
+    let mut table = Table::<TestData>::create(&name, 5).unwrap();
+
+    for i in 0..5 {
+        let record = TestData {
+            number: i,
+            value: 100.0 / (i as f64),
+        };
+        table.insert(&record).expect("unable to insert record");
+    }
+    assert_eq!(table.count(), 5);
+    assert_eq!(table.capacity(), 5);
+
+    table.remove(3).expect("unable to remove record");
+
+    let keys = table.keys().collect::<Vec<_>>();
+    assert_eq!(keys, vec![0, 1, 2, 4]);
+}

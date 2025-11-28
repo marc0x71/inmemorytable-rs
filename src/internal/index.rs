@@ -6,8 +6,14 @@ use std::{
 };
 
 use crate::{
-    error::InMemoryTableError, internal::block::Block, internal::memory_array::MemoryArray,
-    internal::offset::Offset, internal::semaphore::SemaphoreSet, internal::slot::Slots,
+    error::InMemoryTableError,
+    internal::{
+        block::Block,
+        memory_array::MemoryArray,
+        offset::Offset,
+        semaphore::SemaphoreSet,
+        slot::{Slots, SlotsIterator},
+    },
 };
 
 #[repr(C)]
@@ -129,6 +135,13 @@ impl<K> Index<K> {
 
         Ok(())
     }
+
+    pub fn iter(&self) -> IndexIterator<'_, K> {
+        IndexIterator {
+            inner: self.slots.iter(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<K: Hash + Eq + Clone> Index<K> {
@@ -243,5 +256,21 @@ impl<K: Hash + Eq + Clone> Index<K> {
             }
         }
         Ok(())
+    }
+}
+
+pub struct IndexIterator<'a, K> {
+    inner: SlotsIterator<'a>,
+    _phantom: PhantomData<K>,
+}
+
+impl<K> Iterator for IndexIterator<'_, K> {
+    type Item = K;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|slice| {
+            let node = unsafe { ptr::read(slice.as_ptr() as *const Node<K>) };
+            node.key
+        })
     }
 }
