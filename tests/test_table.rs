@@ -237,7 +237,7 @@ fn test_insert_duplicated() {
     let mut table = Table::<TestData>::create(&name, 10).unwrap();
     let record = TestData {
         number: 1,
-        value: 100.0 / (1 as f64),
+        value: 100.0 / 1_f64,
     };
     table.insert(&record).expect("unable to insert record");
     table.insert(&record).expect_err("RecordDuplicated");
@@ -449,7 +449,7 @@ impl TableRecord for TestIndexData {
 
     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
         vec![IndexDef {
-            name: "range".into(),
+            name: "range1".into(),
             kind: IndexKind::Range,
             extractor: Box::new(|r| Id::from_value(r.range)),
         }]
@@ -473,6 +473,14 @@ fn test_range_index() {
     table.remove(2).expect("unable to remove key");
 
     // dbg!(&table);
+
+    let query = table
+        .query_range_index("range1")
+        .expect("error retrieving range1");
+
+    let x = query.lt(4);
+    dbg!(x);
+    drop(query);
 
     table.destroy().unwrap();
 

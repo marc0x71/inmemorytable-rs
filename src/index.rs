@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, marker::PhantomData};
 
 use crate::{
     error::InMemoryTableError,
@@ -10,7 +10,7 @@ use crate::{
         memory_array::MemoryArray,
         range_index::{self, RangeIndex},
     },
-    primitive::Id,
+    primitive::{Id, Primitive},
     record::TableRecord,
     table::Table,
 };
@@ -138,7 +138,7 @@ impl<T> Index<T> {
 }
 
 #[derive(Debug)]
-pub(crate) struct Indexes<T: TableRecord> {
+pub struct Indexes<T: TableRecord> {
     table_name: String,
     capacity: usize,
     block: Block,
@@ -280,5 +280,72 @@ impl<T: TableRecord> Indexes<T> {
             idx.remove(record, position)?
         }
         Ok(())
+    }
+
+    pub fn query_range_index<'a, P: Fn(usize) -> Option<T>>(
+        &'a self,
+        index_name: &str,
+        provider: P,
+    ) -> Result<IndexQuery<RangeIndexRef<'a>, T, P>, InMemoryTableError> {
+        self.definitions
+            .get(index_name)
+            .map(|idx| match &idx.index_type {
+                IndexType::Range(index) => Ok(IndexQuery {
+                    index_ref: RangeIndexRef(index),
+                    provider,
+                    _phantom: PhantomData,
+                }),
+                IndexType::Hash(_) => Err(InMemoryTableError::InvalidIndexType),
+            })
+            .ok_or(InMemoryTableError::IndexNotFound {
+                name: index_name.to_string(),
+            })?
+    }
+
+    pub fn query_hash_index<'a, P: Fn(usize) -> Option<T>>(
+        &'a self,
+        index_name: &str,
+        provider: P,
+    ) -> Result<IndexQuery<HashIndexRef<'a>, T, P>, InMemoryTableError> {
+        self.definitions
+            .get(index_name)
+            .map(|idx| match &idx.index_type {
+                IndexType::Hash(index) => Ok(IndexQuery {
+                    index_ref: HashIndexRef(index),
+                    provider,
+                    _phantom: PhantomData,
+                }),
+                IndexType::Range(_) => Err(InMemoryTableError::InvalidIndexType),
+            })
+            .ok_or(InMemoryTableError::IndexNotFound {
+                name: index_name.to_string(),
+            })?
+    }
+}
+
+pub struct HashIndexRef<'a>(&'a HashIndex<Id>);
+pub struct RangeIndexRef<'a>(&'a RangeIndex<Id>);
+
+pub struct IndexQuery<I, T: TableRecord, P: Fn(usize) -> Option<T>> {
+    index_ref: I,
+    provider: P,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: TableRecord, P: Fn(usize) -> Option<T>> IndexQuery<HashIndexRef<'_>, T, P> {
+    pub fn eq<V: Into<Id>>(&self, value: V) -> Option<T> {
+        None
+    }
+}
+
+impl<T: TableRecord, P: Fn(usize) -> Option<T>> IndexQuery<RangeIndexRef<'_>, T, P> {
+    pub fn eq<V: Into<Id>>(&self, value: V) -> Vec<T> {
+        vec![]
+    }
+    pub fn gt<V: Into<Id>>(&self, value: V) -> Vec<T> {
+        vec![]
+    }
+    pub fn lt<V: Into<Id>>(&self, value: V) -> Vec<T> {
+        vec![]
     }
 }

@@ -124,6 +124,9 @@ pub enum InMemoryTableError {
 
     #[error("Index name '{name}' not found")]
     IndexNotFound { name: String },
+
+    #[error("Invalid required index type")]
+    InvalidIndexType,
 }
 
 impl InMemoryTableError {

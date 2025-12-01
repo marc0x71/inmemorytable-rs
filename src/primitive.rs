@@ -132,6 +132,72 @@ impl Id {
     }
 }
 
+impl From<u8> for Id {
+    fn from(value: u8) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<u16> for Id {
+    fn from(value: u16) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<u32> for Id {
+    fn from(value: u32) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<u64> for Id {
+    fn from(value: u64) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<u128> for Id {
+    fn from(value: u128) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<i8> for Id {
+    fn from(value: i8) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<i16> for Id {
+    fn from(value: i16) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<i32> for Id {
+    fn from(value: i32) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<i64> for Id {
+    fn from(value: i64) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<i128> for Id {
+    fn from(value: i128) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<f32> for Id {
+    fn from(value: f32) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<f64> for Id {
+    fn from(value: f64) -> Self {
+        Self::from_value(value)
+    }
+}
+impl From<bool> for Id {
+    fn from(value: bool) -> Self {
+        Self::from_value(value)
+    }
+}
+
 impl Hash for Id {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Hash del type tag per distinguere tipi diversi

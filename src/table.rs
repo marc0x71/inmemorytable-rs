@@ -4,7 +4,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     error::InMemoryTableError,
-    index::Indexes,
+    index::{HashIndexRef, IndexQuery, Indexes, RangeIndexRef},
     internal::{
         block::Block,
         hash_index::{HashIndex, IndexIterator},
@@ -450,10 +450,6 @@ impl<T: TableRecord> Table<T> {
 
         Ok(())
     }
-
-    // pub fn use_index<I>(self, index_name: &str) -> Result<IndexQuery<T, I>, InMemoryTableError> {
-    //     self.indexes.use_index(index_name)
-    // }
 }
 
 impl<T: TableRecord> Table<T>
@@ -845,6 +841,32 @@ where
             }
         }
         Ok(found)
+    }
+
+    fn make_provider(&self) -> impl Fn(usize) -> Option<T> {
+        |position: usize| self.get(position).unwrap_or_default()
+    }
+
+    pub fn query_range_index<'a>(
+        &'a self,
+        index_name: &str,
+    ) -> Result<
+        IndexQuery<RangeIndexRef<'a>, T, impl Fn(usize) -> Option<T> + use<'a, T>>,
+        InMemoryTableError,
+    > {
+        let provider = self.make_provider();
+        self.indexes.query_range_index(index_name, provider)
+    }
+
+    pub fn query_hash_index<'a>(
+        &'a self,
+        index_name: &str,
+    ) -> Result<
+        IndexQuery<HashIndexRef<'a>, T, impl Fn(usize) -> Option<T> + use<'a, T>>,
+        InMemoryTableError,
+    > {
+        let provider = self.make_provider();
+        self.indexes.query_hash_index(index_name, provider)
     }
 }
 
