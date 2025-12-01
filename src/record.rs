@@ -1,5 +1,7 @@
 use std::hash::Hash;
 
+use crate::index::IndexDef;
+
 /// A trait for records that can be stored in a shared memory table.
 ///
 /// This trait must be implemented for any type that needs to be stored in
@@ -39,6 +41,10 @@ use std::hash::Hash;
 ///     fn key(&self) -> Self::Key {
 ///         self.number
 ///     }
+///
+///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+///         vec![]
+///     }
 /// }
 ///
 /// // Usage
@@ -65,9 +71,13 @@ use std::hash::Hash;
 ///     fn key(&self) -> Self::Key {
 ///         self.id
 ///     }
+///
+///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+///         vec![]
+///     }
 /// }
 /// ```
-pub trait TableRecord: Sized {
+pub trait TableRecord: Sized + Clone {
     /// The type of the primary key used to identify this record.
     ///
     /// This type will be used for indexing, lookups in the shared memory table.
@@ -83,4 +93,6 @@ pub trait TableRecord: Sized {
     ///
     /// The primary key value of type `Self::Key`.
     fn key(&self) -> Self::Key;
+
+    fn indexes() -> Vec<IndexDef<Self>>;
 }

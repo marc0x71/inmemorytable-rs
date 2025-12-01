@@ -4,16 +4,18 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     error::InMemoryTableError,
+    index::Indexes,
     internal::{
         block::Block,
+        hash_index::{HashIndex, IndexIterator},
         header::Header,
-        index::{Index, IndexIterator},
         semaphore::SemaphoreSet,
         slot::{Slots, SlotsIterator},
     },
     record::TableRecord,
 };
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct TableHeader {
     /// magic number
@@ -97,6 +99,9 @@ impl TableHeader {
 ///     fn key(&self) -> Self::Key {
 ///         self.number
 ///     }
+///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+///         vec![]
+///     }
 /// }
 ///
 /// fn random_name() -> String {
@@ -134,7 +139,8 @@ pub struct Table<T: TableRecord> {
     /// semaphore set
     semaphores: SemaphoreSet,
     /// index
-    primary_keys: Index<T::Key>,
+    primary_keys: HashIndex<T::Key>,
+    indexes: Indexes<T>,
     /// phantom data
     _phantom: PhantomData<T>,
 }
@@ -177,6 +183,9 @@ impl<T: TableRecord> Table<T> {
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> Self::Key { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_table_create";
@@ -214,6 +223,10 @@ impl<T: TableRecord> Table<T> {
     /// impl TableRecord for BigRecord {
     ///     type Key = u32;
     ///     fn key(&self) -> u32 { 0 }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
+    ///
     /// }
     ///
     /// let name = "demo_big";
@@ -247,7 +260,9 @@ impl<T: TableRecord> Table<T> {
         // create semaphores (capacity + 1)
         let semaphores = SemaphoreSet::create(name, capacity)?;
 
-        let primary_keys = Index::new(name, capacity)?;
+        let pk_name = format!("{name}_pk");
+        let primary_keys = HashIndex::new(&pk_name, capacity)?;
+        let indexes = Indexes::new(name, capacity)?;
 
         let table = Self {
             block,
@@ -255,6 +270,7 @@ impl<T: TableRecord> Table<T> {
             slots,
             semaphores,
             primary_keys,
+            indexes,
             _phantom: PhantomData,
         };
 
@@ -282,6 +298,9 @@ impl<T: TableRecord> Table<T> {
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_open";
@@ -319,7 +338,9 @@ impl<T: TableRecord> Table<T> {
 
         let semaphores = SemaphoreSet::open(name, header.capacity)?;
 
-        let primary_keys = Index::open(name, header.capacity)?;
+        let pk_name = format!("{name}_pk");
+        let primary_keys = HashIndex::open(&pk_name, header.capacity)?;
+        let indexes = Indexes::open(name, header.capacity)?;
 
         Ok(Self {
             block,
@@ -327,6 +348,7 @@ impl<T: TableRecord> Table<T> {
             slots,
             semaphores,
             primary_keys,
+            indexes,
             _phantom: PhantomData,
         })
     }
@@ -345,6 +367,9 @@ impl<T: TableRecord> Table<T> {
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self)->i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_count";
@@ -374,6 +399,9 @@ impl<T: TableRecord> Table<T> {
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self)->i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let table = Table::<TestData>::create("demo_cap", 7).unwrap();
@@ -405,6 +433,9 @@ impl<T: TableRecord> Table<T> {
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self)->i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_destroy";
@@ -415,9 +446,14 @@ impl<T: TableRecord> Table<T> {
         self.block.destroy()?;
         self.semaphores.destroy()?;
         self.primary_keys.destroy()?;
+        self.indexes.destroy()?;
 
         Ok(())
     }
+
+    // pub fn use_index<I>(self, index_name: &str) -> Result<IndexQuery<T, I>, InMemoryTableError> {
+    //     self.indexes.use_index(index_name)
+    // }
 }
 
 impl<T: TableRecord> Table<T>
@@ -449,6 +485,9 @@ where
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_update";
@@ -476,8 +515,13 @@ where
         if let Some(index) = self.primary_keys.get(key) {
             let _locked = self.semaphores.lock_record(index)?;
             if let Some(mut record) = self.get(index)? {
+                let old_value = record.clone();
                 let result = f(&mut record);
+                if old_value.key() != record.key() {
+                    return Err(InMemoryTableError::PrimaryKeyChanged);
+                }
                 self.update(index, &record)?;
+                self.indexes.update(old_value, record, index)?;
                 return Ok(Some(result));
             }
         }
@@ -503,7 +547,7 @@ where
     ///
     /// # Returns
     ///
-    /// Index of the inserted record (0-based).
+    /// HashIndex of the inserted record (0-based).
     ///
     /// # Example
     ///
@@ -516,6 +560,9 @@ where
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_insert";
@@ -544,6 +591,7 @@ where
 
         // update primary_keys
         self.primary_keys.insert(record.key(), index)?;
+        self.indexes.insert(record, index)?;
 
         Ok(index)
     }
@@ -581,6 +629,9 @@ where
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_find";
@@ -620,6 +671,9 @@ where
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_remove";
@@ -638,6 +692,9 @@ where
         if let Some(index) = self.primary_keys.get(key) {
             let _locked = self.semaphores.lock_record(index)?;
 
+            if let Ok(Some(record)) = self.get(index) {
+                self.indexes.remove(&record, index)?;
+            }
             self.slots.remove(index);
             return self.primary_keys.remove(key);
         }
@@ -661,6 +718,9 @@ where
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_iter";
@@ -697,6 +757,9 @@ where
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> i32 { self.number }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_keys";
@@ -735,6 +798,9 @@ where
     /// impl TableRecord for TestData {
     ///     type Key = i32;
     ///     fn key(&self) -> i32 { self.id }
+    ///     fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+    ///         vec![]
+    ///     }
     /// }
     ///
     /// let name = "demo_update_many";

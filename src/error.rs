@@ -112,6 +112,18 @@ pub enum InMemoryTableError {
 
     #[error("Misaligned memory: address {address}, required {required}")]
     MisalignedMemory { address: usize, required: usize },
+
+    #[error("PrimaryKey changed")]
+    PrimaryKeyChanged,
+
+    #[error("Index name too long: current {current}, max {max}")]
+    IndexNameTooLong { current: usize, max: usize },
+
+    #[error("Too many indexes: current {current}, max {max}")]
+    TooManyIndexes { current: usize, max: usize },
+
+    #[error("Index name '{name}' not found")]
+    IndexNotFound { name: String },
 }
 
 impl InMemoryTableError {

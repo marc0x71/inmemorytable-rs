@@ -15,6 +15,7 @@ struct SlotMetadata {
                  // after the "size" field there is the buffer
 }
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct SlotsHeader {
     /// maximum capacity

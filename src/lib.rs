@@ -41,5 +41,7 @@
 mod internal;
 
 pub mod error;
+pub mod index;
+pub mod primitive;
 pub mod record;
 pub mod table;

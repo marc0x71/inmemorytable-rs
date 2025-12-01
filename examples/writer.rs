@@ -12,6 +12,10 @@ impl TableRecord for Record {
     fn key(&self) -> Self::Key {
         self.number
     }
+
+    fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+        vec![]
+    }
 }
 
 fn main() {

@@ -31,7 +31,7 @@ struct Node<K> {
 }
 
 #[derive(Debug)]
-pub(crate) struct Index<K> {
+pub(crate) struct HashIndex<K> {
     block: Block,
     buckets: MemoryArray<Bucket>,
     slots: Slots,
@@ -40,7 +40,7 @@ pub(crate) struct Index<K> {
     _phantom: PhantomData<K>,
 }
 
-impl<K> Index<K> {
+impl<K> HashIndex<K> {
     const BUCKETS_FACTOR: f64 = 0.75;
 
     pub(crate) fn new(name: &str, size: usize) -> Result<Self, InMemoryTableError> {
@@ -49,18 +49,17 @@ impl<K> Index<K> {
         let total_size = total_buckets_size
             + Slots::calculate_required_size(size, std::mem::size_of::<Node<K>>());
 
-        let block_name = format!("{name}_pk");
-        let block = Block::new(&block_name, total_size)?;
+        let block = Block::new(name, total_size)?;
 
         // initialize buckets
-        let buckets = MemoryArray::new(block.ptr(), total_buckets_size)?;
+        let buckets = MemoryArray::new(block.ptr(), total_buckets)?;
 
         // initialize slots
         let slots_ptr = unsafe { block.ptr().add(total_buckets_size) };
         let slots = Slots::new(slots_ptr, size, std::mem::size_of::<Node<K>>())?;
 
         // create semaphores (capacity + 1)
-        let semaphores = SemaphoreSet::create(&block_name, 0)?;
+        let semaphores = SemaphoreSet::create(name, 0)?;
 
         Ok(Self {
             block,
@@ -76,18 +75,17 @@ impl<K> Index<K> {
         let total_buckets = (size as f64 * Self::BUCKETS_FACTOR).ceil() as usize;
         let total_buckets_size = std::mem::size_of::<Bucket>() * total_buckets;
 
-        let block_name = format!("{name}_pk");
-        let block = Block::open(&block_name)?;
+        let block = Block::open(name)?;
 
         // initialize buckets
-        let buckets = MemoryArray::new(block.ptr(), total_buckets_size)?;
+        let buckets = MemoryArray::new(block.ptr(), total_buckets)?;
 
         // initialize slots
         let slots_ptr = unsafe { block.ptr().add(total_buckets_size) };
         let slots = Slots::open(slots_ptr)?;
 
         // create semaphores (capacity + 1)
-        let semaphores = SemaphoreSet::open(&block_name, 0)?;
+        let semaphores = SemaphoreSet::open(name, 0)?;
 
         Ok(Self {
             block,
@@ -144,7 +142,7 @@ impl<K> Index<K> {
     }
 }
 
-impl<K: Hash + Eq + Clone> Index<K> {
+impl<K: Hash + Eq + Clone> HashIndex<K> {
     fn hash(&self, key: &K) -> usize {
         let mut hasher = DefaultHasher::new();
         key.hash(&mut hasher);
@@ -192,6 +190,28 @@ impl<K: Hash + Eq + Clone> Index<K> {
         Ok(())
     }
 
+    fn search_by_key_position(&self, key: &K, position: usize) -> Option<(usize, Node<K>)>
+    where
+        K: Debug,
+    {
+        let bucket_idx = self.hash(key);
+        if let Some(mut last_node_idx) = self.buckets[bucket_idx].node_position.get() {
+            // bucket exists
+            let mut last_node = self.read_node(last_node_idx);
+            while last_node.key != *key && last_node.position != position {
+                match last_node.next.get() {
+                    Some(next) => {
+                        last_node_idx = next;
+                        last_node = self.read_node(last_node_idx);
+                    }
+                    None => return None,
+                };
+            }
+            return Some((last_node_idx, last_node));
+        }
+        None
+    }
+
     fn search(&self, key: &K) -> Option<(usize, Node<K>)>
     where
         K: Debug,
@@ -220,6 +240,55 @@ impl<K: Hash + Eq + Clone> Index<K> {
     {
         let _lock = self.semaphores.lock_table();
         self.search(&key).map(|(_, node)| node.position)
+    }
+
+    pub(crate) fn update(
+        &mut self,
+        old_key: K,
+        new_key: K,
+        position: usize,
+    ) -> Result<(), InMemoryTableError>
+    where
+        K: Debug,
+    {
+        self.delete(old_key, position)?;
+        self.insert(new_key, position)
+    }
+
+    pub(crate) fn delete(&mut self, key: K, position: usize) -> Result<(), InMemoryTableError>
+    where
+        K: Debug,
+    {
+        let _lock = self.semaphores.lock_table();
+        if let Some((removing_idx, removing_node)) = self.search_by_key_position(&key, position) {
+            let bucket_idx = self.hash(&key);
+            let bucket = &mut self.buckets[bucket_idx];
+            let mut last_node_idx = bucket.node_position.get().unwrap();
+            if last_node_idx == removing_idx {
+                // the node is the first in the bucket
+                bucket.node_position = removing_node.next;
+                // self.write_bucket(bucket_idx, bucket);
+                self.remove_node(removing_idx);
+                return Ok(());
+            }
+            let mut last_node = self.read_node(last_node_idx);
+            loop {
+                match last_node.next.get() {
+                    Some(next) if next == removing_idx => {
+                        last_node.next = removing_node.next;
+                        self.update_node(last_node_idx, last_node)?;
+                        self.remove_node(removing_idx);
+                        break;
+                    }
+                    Some(next) => {
+                        last_node_idx = next;
+                        last_node = self.read_node(last_node_idx);
+                    }
+                    None => break,
+                };
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn remove(&mut self, key: K) -> Result<(), InMemoryTableError>

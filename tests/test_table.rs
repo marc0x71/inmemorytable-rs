@@ -1,4 +1,9 @@
-use inmemorytable::{record::TableRecord, table::Table};
+use inmemorytable::{
+    index::{IndexDef, IndexKind},
+    primitive::Id,
+    record::TableRecord,
+    table::Table,
+};
 use rand::{Rng, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +20,10 @@ impl TableRecord for TestData {
 
     fn key(&self) -> Self::Key {
         self.number
+    }
+
+    fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+        vec![]
     }
 }
 
@@ -417,6 +426,53 @@ fn test_update_many() {
             .unwrap_or_else(|| panic!("Record with key {} not found", i));
         assert_eq!(got, expected);
     }
+
+    table.destroy().unwrap();
+
+    assert!(!common::shm_exists(&name));
+    assert!(!common::sem_exists(&name));
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+struct TestIndexData {
+    number: i32,
+    value: f64,
+    range: i32,
+}
+
+impl TableRecord for TestIndexData {
+    type Key = i32;
+
+    fn key(&self) -> Self::Key {
+        self.number
+    }
+
+    fn indexes() -> Vec<inmemorytable::index::IndexDef<Self>> {
+        vec![IndexDef {
+            name: "range".into(),
+            kind: IndexKind::Range,
+            extractor: Box::new(|r| Id::from_value(r.range)),
+        }]
+    }
+}
+
+#[test]
+fn test_range_index() {
+    let name = random_table_name();
+
+    let mut table = Table::<TestIndexData>::create(&name, 5).unwrap();
+
+    for i in 0..5 {
+        let record = TestIndexData {
+            number: i,
+            range: i * 2,
+            value: 100.0 / (i as f64),
+        };
+        table.insert(&record).expect("unable to insert record");
+    }
+    table.remove(2).expect("unable to remove key");
+
+    // dbg!(&table);
 
     table.destroy().unwrap();
 

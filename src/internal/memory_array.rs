@@ -14,7 +14,7 @@ pub(crate) struct MemoryArray<T> {
 }
 
 impl<T> MemoryArray<T> {
-    pub fn new(ptr: *mut u8, size: usize) -> Result<Self, InMemoryTableError> {
+    pub fn new(ptr: *mut u8, length: usize) -> Result<Self, InMemoryTableError> {
         let alignment = std::mem::align_of::<T>();
         if !(ptr as usize).is_multiple_of(alignment) {
             return Err(InMemoryTableError::MisalignedMemory {
@@ -24,7 +24,7 @@ impl<T> MemoryArray<T> {
         }
         Ok(Self {
             ptr,
-            length: size,
+            length,
             _phantom: PhantomData,
         })
     }
