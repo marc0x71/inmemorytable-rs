@@ -282,6 +282,16 @@ impl<T: TableRecord> Indexes<T> {
         Ok(())
     }
 
+    /// Queries a range index in the table.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - A string slice that holds the name of the index to query.
+    /// * `provider` - A closure that provides values for the index.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an `IndexQuery` if successful, or an `InMemoryTableError`
     pub fn query_range_index<'a, P: Fn(usize) -> Option<T>>(
         &'a self,
         index_name: &str,
@@ -302,6 +312,16 @@ impl<T: TableRecord> Indexes<T> {
             })?
     }
 
+    /// Queries a hash index in the table.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - A string slice that holds the name of the index to query.
+    /// * `provider` - A closure that provides values for the index.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an `IndexQuery` if successful, or an `InMemoryTableError` if the index is not found or has an invalid type.
     pub fn query_hash_index<'a, P: Fn(usize) -> Option<T>>(
         &'a self,
         index_name: &str,
@@ -340,12 +360,15 @@ impl<T: TableRecord, P: Fn(usize) -> Option<T>> IndexQuery<HashIndexRef<'_>, T, 
 
 impl<T: TableRecord, P: Fn(usize) -> Option<T>> IndexQuery<RangeIndexRef<'_>, T, P> {
     pub fn eq<V: Into<Id>>(&self, value: V) -> Vec<T> {
+        // TODO da fare
         vec![]
     }
     pub fn gt<V: Into<Id>>(&self, value: V) -> Vec<T> {
+        // TODO da fare
         vec![]
     }
     pub fn lt<V: Into<Id>>(&self, value: V) -> Vec<T> {
+        // TODO da fare
         vec![]
     }
 }

@@ -847,6 +847,15 @@ where
         |position: usize| self.get(position).unwrap_or_default()
     }
 
+    /// Queries a range index in the table.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - A string slice that holds the name of the index to query.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an `IndexQuery` if successful, or an `InMemoryTableError` if the index is not found or has an invalid type.
     pub fn query_range_index<'a>(
         &'a self,
         index_name: &str,
@@ -857,6 +866,15 @@ where
         let provider = self.make_provider();
         self.indexes.query_range_index(index_name, provider)
     }
+
+    /// Queries a range index in the table.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - A string slice that holds the name of the index to query.
+    ///
+    /// # Returns
+    ///
 
     pub fn query_hash_index<'a>(
         &'a self,
